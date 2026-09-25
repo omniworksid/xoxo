@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XOXO Arena - Multiplayer</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    :root {
+      --bg: #1e1e24;
+      --card-bg: #2b2d42;
+      --accent-x: #ef233c;
+      --accent-o: #4cc9f0;
+      --text: #edf2f4;
+      --subtext: #8d99ae;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    body { background: var(--bg); color: var(--text); display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+
+    .container {
+      background: var(--card-bg);
+      padding: 30px;
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      width: 100%;
+      max-width: 420px;
+      text-align: center;
+    }
+
+    h1 { margin-bottom: 5px; font-size: 28px; letter-spacing: 2px; }
+    .status-bar { margin-bottom: 20px; color: var(--subtext); font-size: 14px; }
+    
+    .role-badge {
+      display: inline-block;
+      padding: 6px 14px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.1);
+      font-weight: bold;
+      margin-top: 8px;
+    }
+
+    .lobby-screen {
+      padding: 40px 20px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 12px;
+      margin-bottom: 20px;
+    }
+
+    .spinner {
+      border: 4px solid rgba(255,255,255,0.1);
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      border-left-color: var(--accent-o);
+      animation: spin 1s linear infinite;
+      margin: 0 auto 15px;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin: 20px 0;
+    }
+
+    .cell {
+      aspect-ratio: 1;
+      background: rgba(255,255,255,0.05);
+      border-radius: 12px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 40px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+      user-select: none;
+    }
+    .cell:hover { background: rgba(255,255,255,0.1); }
+    .cell.x { color: var(--accent-x); }
+    .cell.o { color: var(--accent-o); }
+
+    .info-footer {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      color: var(--subtext);
+      margin-top: 15px;
+      border-top: 1px solid rgba(255,255,255,0.1);
+      padding-top: 15px;
+    }
+
+    button {
+      background: #8d99ae;
+      border: none;
+      color: #1e1e24;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: bold;
+      cursor: pointer;
+      margin-top: 10px;
+      transition: 0.2s;
+    }
+    button:hover { background: var(--text); }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>XOXO ARENA</h1>
+  <div id="roleDisplay" class="role-badge">Menghubungkan...</div>
+
+  <!-- LOBBY -->
+  <div id="lobbyScreen" class="lobby-screen">
+    <div class="spinner"></div>
+    <p>Menunggu lawan bergabung...</p>
+    <p style="font-size: 12px; color: var(--subtext); margin-top: 10px;">Bagikan link URL ini ke teman kamu!</p>
+  </div>
+
+  <!-- GAME BOARD -->
+  <div id="gameScreen" class="hidden">
+    <div class="status-bar" id="turnStatus">Giliran: -</div>
+    <div class="grid" id="board">
+      <div class="cell" data-index="0"></div>
+      <div class="cell" data-index="1"></div>
+      <div class="cell" data-index="2"></div>
+      <div class="cell" data-index="3"></div>
+      <div class="cell" data-index="4"></div>
+      <div class="cell" data-index="5"></div>
+      <div class="cell" data-index="6"></div>
+      <div class="cell" data-index="7"></div>
+      <div class="cell" data-index="8"></div>
+    </div>
+    <button id="resetBtn" class="hidden">Main Lagi</button>
+  </div>
+
+  <div class="info-footer">
+    <span id="ipDisplay">IP: -</span>
+    <span id="spectatorDisplay">Penonton: 0</span>
+  </div>
+</div>
+
+<script>
+  const socket = io();
+  let myRole = null;
+
+  const lobbyScreen = document.getElementById('lobbyScreen');
+  const gameScreen = document.getElementById('gameScreen');
+  const roleDisplay = document.getElementById('roleDisplay');
+  const turnStatus = document.getElementById('turnStatus');
+  const ipDisplay = document.getElementById('ipDisplay');
+  const spectatorDisplay = document.getElementById('spectatorDisplay');
+  const resetBtn = document.getElementById('resetBtn');
+  const cells = document.querySelectorAll('.cell');
+
+  socket.on('initRole', (data) => {
+    myRole = data.role;
+    ipDisplay.innerText = `IP Anda: ${data.ip}`;
+
+    if (myRole === 'X') roleDisplay.innerText = "Peran Anda: Player 1 (X)";
+    else if (myRole === 'O') roleDisplay.innerText = "Peran Anda: Player 2 (O)";
+    else roleDisplay.innerText = "Peran Anda: Penonton (Spectator)";
+  });
+
+  socket.on('updateGame', (state) => {
+    spectatorDisplay.innerText = `Penonton: ${state.spectatorCount}`;
+
+    // Cek jika pemain kurang dari 2 (masuk Lobby)
+    if (state.playerCount < 2) {
+      lobbyScreen.classList.remove('hidden');
+      gameScreen.classList.add('hidden');
+      return;
+    }
+
+    lobbyScreen.classList.add('hidden');
+    gameScreen.classList.remove('hidden');
+
+    // Render Board
+    state.board.forEach((val, idx) => {
+      cells[idx].innerText = val || '';
+      cells[idx].className = 'cell ' + (val ? val.toLowerCase() : '');
+    });
+
+    // Render Status Turn/Winner
+    if (state.winnerInfo) {
+      if (state.winnerInfo.winner === 'DRAW') {
+        turnStatus.innerText = "Hasil Seri / Seri!";
+      } else {
+        turnStatus.innerText = `Pemenang: Player ${state.winnerInfo.winner}! 🎉`;
+      }
+      if (myRole !== 'spectator') resetBtn.classList.remove('hidden');
+    } else {
+      resetBtn.classList.add('hidden');
+      turnStatus.innerText = state.turn === myRole 
+        ? "Giliran Anda!" 
+        : `Giliran Player (${state.turn})`;
+    }
+  });
+
+  cells.forEach(cell => {
+    cell.addEventListener('click', () => {
+      const idx = cell.getAttribute('data-index');
+      socket.emit('makeMove', idx);
+    });
+  });
+
+  resetBtn.addEventListener('click', () => {
+    socket.emit('resetGame');
+  });
+</script>
+</body>
+</html>
