@@ -9,8 +9,8 @@ const io = new Server(server, { cors: { origin: "*" } });
 app.use(express.static(__dirname));
 
 let roomState = {
-  players: [], // [{ id, name, role: 'P1'|'P2', color: 'w'|'b', ready: false, score: 0 }]
-  spectators: [], // [{ id, name }]
+  players: [],
+  spectators: [],
   board: Array(16).fill(null),
   turn: 'w',
   gameActive: false,
@@ -20,11 +20,7 @@ let roomState = {
   rematchVotes: new Set()
 };
 
-// Preset Bidak 4x4 opsional / Random Puzzle Setup
 function generate4x4Board() {
-  // Papan 4x4 (Indeks 0-15)
-  // Baris 0: 0,1,2,3 | Baris 1: 4,5,6,7 | Baris 2: 8,9,10,11 | Baris 3: 12,13,14,15
-  // w = White, b = Black; K = King, R = Rook, B = Bishop, P = Pawn, N = Knight
   const setups = [
     [
       { pos: 0, piece: 'bR' }, { pos: 1, piece: 'bK' }, { pos: 2, piece: 'bB' }, { pos: 3, piece: 'bP' },
@@ -46,6 +42,32 @@ function generate4x4Board() {
   return newBoard;
 }
 
+// Validasi Langkah Bidak Catur (Ukuran 4x4)
+function isValidMove(board, from, to, playerColor) {
+  const piece = board[from];
+  if (!piece || piece[0] !== playerColor) return false;
+
+  const target = board[to];
+  if (target && target[0] === playerColor) return false; // Tidak bisa memakan teman
+
+  const fromRow = Math.floor(from / 4), fromCol = from % 4;
+  const toRow = Math.floor(to / 4), toCol = to % 4;
+  const dRow = Math.abs(toRow - fromRow), dCol = Math.abs(toCol - fromCol);
+  const type = piece[1];
+
+  if (type === 'K') return dRow <= 1 && dCol <= 1; // King
+  if (type === 'R') return (fromRow === toRow || fromCol === toCol); // Rook
+  if (type === 'B') return dRow === dCol; // Bishop
+  if (type === 'N') return (dRow === 2 && dCol === 1) || (dRow === 1 && dCol === 2); // Knight
+  if (type === 'P') { // Pawn
+    const dir = playerColor === 'w' ? -1 : 1;
+    if (fromCol === toCol && toRow - fromRow === dir && !target) return true;
+    if (dCol === 1 && toRow - fromRow === dir && target) return true;
+    return false;
+  }
+  return true;
+}
+
 function broadcastState() {
   io.emit('updateGame', {
     players: roomState.players,
@@ -54,8 +76,7 @@ function broadcastState() {
     turn: roomState.turn,
     gameActive: roomState.gameActive,
     round: roomState.round,
-    timeLeft: roomState.timeLeft,
-    rematchCount: roomState.rematchVotes.size
+    timeLeft: roomState.timeLeft
   });
 }
 
@@ -70,7 +91,6 @@ function startTurnTimer() {
 
     if (roomState.timeLeft <= 0) {
       clearInterval(roomState.timer);
-      // Timeout - Pemain yang gilirannya habis kalah
       const loserColor = roomState.turn;
       const winnerColor = loserColor === 'w' ? 'b' : 'w';
       endRound(winnerColor, "Waktu habis! Terlalu lambat berpikir.");
@@ -86,32 +106,19 @@ function endRound(winnerColor, reason) {
   if (winnerPlayer) winnerPlayer.score += 1;
 
   let praiseText = "";
-  let isMatchEnd = false;
-
   if (roomState.round >= 5 || roomState.players.some(p => p.score >= 3)) {
-    isMatchEnd = true;
     const p1 = roomState.players[0];
     const p2 = roomState.players[1];
-    
     if (p1 && p2) {
-      if (p1.score > p2.score) {
-        praiseText = `🏆 ${p1.name} MENANG TOTAL (${p1.score}-${p2.score})! Murni keberuntungan di catur 4x4 mini ini! 😉`;
-      } else if (p2.score > p1.score) {
-        praiseText = `🏆 ${p2.name} MENANG TOTAL (${p2.score}-${p1.score})! Luar biasa, jagoan di papan seukuran telapak tangan! 👏`;
-      } else {
-        praiseText = `⚖️ SERI TOTAL (${p1.score}-${p2.score})! Dua-duanya sama-sama seimbang (atau sama-sama payah)!`;
-      }
+      if (p1.score > p2.score) praiseText = `🏆 ${p1.name} MENANG TOTAL (${p1.score}-${p2.score})! Murni keberuntungan di catur 4x4 mini ini! 😉`;
+      else if (p2.score > p1.score) praiseText = `🏆 ${p2.name} MENANG TOTAL (${p2.score}-${p1.score})! Luar biasa, jagoan di papan seukuran telapak tangan! 👏`;
+      else praiseText = `⚖️ SERI TOTAL (${p1.score}-${p2.score})! Dua-duanya sama seimbang!`;
     }
   } else {
-    praiseText = reason || `Player (${winnerColor === 'w' ? 'Putih' : 'Hitam'}) memenangkan ronde ${roomState.round}!`;
+    praiseText = reason || `Player (${winnerColor === 'w' ? 'Putih' : 'Hitam'}) memenangkan ronde!`;
   }
 
-  io.emit('roundOver', {
-    winnerColor,
-    reason: praiseText,
-    isMatchEnd,
-    players: roomState.players
-  });
+  io.emit('roundOver', { winnerColor, reason: praiseText, players: roomState.players });
 }
 
 io.on('connection', (socket) => {
@@ -122,14 +129,7 @@ io.on('connection', (socket) => {
 
     if (roomState.players.length < 2) {
       const role = roomState.players.length === 0 ? 'P1' : 'P2';
-      roomState.players.push({
-        id: socket.id,
-        name: cleanName,
-        role,
-        color: null,
-        ready: false,
-        score: 0
-      });
+      roomState.players.push({ id: socket.id, name: cleanName, role, color: null, ready: false, score: 0 });
       socket.emit('assignedRole', { role, name: cleanName });
     } else {
       roomState.spectators.push({ id: socket.id, name: cleanName });
@@ -144,9 +144,7 @@ io.on('connection', (socket) => {
 
     player.ready = !player.ready;
 
-    // Jika 2 pemain ready, mulai pertandingan
     if (roomState.players.length === 2 && roomState.players.every(p => p.ready)) {
-      // Acak warna P1 dan P2
       const isP1White = Math.random() < 0.5;
       roomState.players[0].color = isP1White ? 'w' : 'b';
       roomState.players[1].color = isP1White ? 'b' : 'w';
@@ -166,22 +164,25 @@ io.on('connection', (socket) => {
     const player = roomState.players.find(p => p.id === socket.id);
     if (!player || player.color !== roomState.turn) return;
 
-    const piece = roomState.board[from];
-    if (!piece || piece[0] !== player.color) return;
+    // Cek validasi langkah
+    if (!isValidMove(roomState.board, from, to, player.color)) return;
 
     const targetPiece = roomState.board[to];
+    const isCapture = !!targetPiece;
 
-    // Eksekusi Langkah
-    roomState.board[to] = piece;
+    // Pindahkan Bidak
+    roomState.board[to] = roomState.board[from];
     roomState.board[from] = null;
 
-    // Cek jika Raja termakan
+    // Kirim sinyal efek suara
+    io.emit('moveMade', { isCapture });
+
+    // Cek Pemakan Raja
     if (targetPiece && targetPiece[1] === 'K') {
       endRound(player.color, `👑 RAJA TERMAKAN! ${player.name} memenangkan ronde ini!`);
       return;
     }
 
-    // Berganti Giliran
     roomState.turn = roomState.turn === 'w' ? 'b' : 'w';
     startTurnTimer();
     broadcastState();
@@ -189,16 +190,13 @@ io.on('connection', (socket) => {
 
   socket.on('voteRematch', () => {
     roomState.rematchVotes.add(socket.id);
-    const required = roomState.players.length;
-
-    if (roomState.rematchVotes.size >= required && required === 2) {
+    if (roomState.rematchVotes.size >= 2) {
       roomState.round += 1;
       if (roomState.round > 5) {
         roomState.round = 1;
         roomState.players.forEach(p => p.score = 0);
       }
-      
-      // Acak warna lagi tiap ronde
+
       const isP1White = Math.random() < 0.5;
       roomState.players[0].color = isP1White ? 'w' : 'b';
       roomState.players[1].color = isP1White ? 'b' : 'w';
@@ -213,18 +211,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('exitGame', () => {
-    // Reset penuh room
-    roomState = {
-      players: [],
-      spectators: [],
-      board: Array(16).fill(null),
-      turn: 'w',
-      gameActive: false,
-      round: 1,
-      timer: null,
-      timeLeft: 5,
-      rematchVotes: new Set()
-    };
+    roomState = { players: [], spectators: [], board: Array(16).fill(null), turn: 'w', gameActive: false, round: 1, timer: null, timeLeft: 5, rematchVotes: new Set() };
     io.emit('gameReset');
   });
 
