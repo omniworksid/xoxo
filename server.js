@@ -8,236 +8,172 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 app.use(express.static(__dirname));
 
-let roomState = {
-  players: [],
-  spectators: [],
-  board: Array(16).fill(null),
-  turn: 'w',
+let room = {
+  players: [], // { id, name, photo, isHost, isReady }
+  board: [],
+  boardSize: 3,
+  winStreak: 3,
+  turnIndex: 0,
   gameActive: false,
-  round: 1,
-  timer: null,
-  timeLeft: 5,
-  rematchVotes: new Set()
+  timerLimit: 10,
+  timeLeft: 10,
+  timerObj: null
 };
 
-function generate4x4Board() {
-  const setups = [
-    [
-      { pos: 0, piece: 'bR' }, { pos: 1, piece: 'bK' }, { pos: 2, piece: 'bB' }, { pos: 3, piece: 'bP' },
-      { pos: 12, piece: 'wP' }, { pos: 13, piece: 'wB' }, { pos: 14, piece: 'wK' }, { pos: 15, piece: 'wR' }
-    ],
-    [
-      { pos: 1, piece: 'bK' }, { pos: 2, piece: 'bN' }, { pos: 3, piece: 'bP' },
-      { pos: 12, piece: 'wP' }, { pos: 13, piece: 'wN' }, { pos: 14, piece: 'wK' }
-    ],
-    [
-      { pos: 0, piece: 'bK' }, { pos: 1, piece: 'bR' }, { pos: 6, piece: 'bP' },
-      { pos: 9, piece: 'wP' }, { pos: 14, piece: 'wR' }, { pos: 15, piece: 'wK' }
-    ]
-  ];
-
-  const chosen = setups[Math.floor(Math.random() * setups.length)];
-  const newBoard = Array(16).fill(null);
-  chosen.forEach(item => { newBoard[item.pos] = item.piece; });
-  return newBoard;
+// Pengaturan Dinamis berdasarkan jumlah pemain
+function getGameSettings(playerCount) {
+  if (playerCount <= 2) return { size: 3, win: 3 };
+  if (playerCount === 3) return { size: 6, win: 4 };
+  if (playerCount === 4) return { size: 8, win: 4 };
+  return { size: 10, win: 4 }; // 5 Pemain
 }
 
-// Validasi Langkah Bidak Catur (Ukuran 4x4)
-function isValidMove(board, from, to, playerColor) {
-  const piece = board[from];
-  if (!piece || piece[0] !== playerColor) return false;
+function checkWin(board, size, winStreak, playerIndex) {
+  const check = (r, c, dr, dc) => {
+    let count = 0;
+    for (let i = 0; i < winStreak; i++) {
+      const nr = r + dr * i, nc = c + dc * i;
+      if (nr >= 0 && nr < size && nc >= 0 && nc < size && board[nr * size + nc] === playerIndex) count++;
+      else break;
+    }
+    return count === winStreak;
+  };
 
-  const target = board[to];
-  if (target && target[0] === playerColor) return false; // Tidak bisa memakan teman
-
-  const fromRow = Math.floor(from / 4), fromCol = from % 4;
-  const toRow = Math.floor(to / 4), toCol = to % 4;
-  const dRow = Math.abs(toRow - fromRow), dCol = Math.abs(toCol - fromCol);
-  const type = piece[1];
-
-  if (type === 'K') return dRow <= 1 && dCol <= 1; // King
-  if (type === 'R') return (fromRow === toRow || fromCol === toCol); // Rook
-  if (type === 'B') return dRow === dCol; // Bishop
-  if (type === 'N') return (dRow === 2 && dCol === 1) || (dRow === 1 && dCol === 2); // Knight
-  if (type === 'P') { // Pawn
-    const dir = playerColor === 'w' ? -1 : 1;
-    if (fromCol === toCol && toRow - fromRow === dir && !target) return true;
-    if (dCol === 1 && toRow - fromRow === dir && target) return true;
-    return false;
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      if (board[r * size + c] !== playerIndex) continue;
+      if (check(r, c, 1, 0) || check(r, c, 0, 1) || check(r, c, 1, 1) || check(r, c, 1, -1)) return true;
+    }
   }
-  return true;
+  return false;
 }
 
-function broadcastState() {
-  io.emit('updateGame', {
-    players: roomState.players,
-    spectators: roomState.spectators,
-    board: roomState.board,
-    turn: roomState.turn,
-    gameActive: roomState.gameActive,
-    round: roomState.round,
-    timeLeft: roomState.timeLeft
+function broadcastLobby() {
+  io.emit('lobbyUpdate', { players: room.players, timerLimit: room.timerLimit });
+}
+
+function broadcastGame() {
+  io.emit('gameUpdate', {
+    board: room.board,
+    size: room.boardSize,
+    turnIndex: room.turnIndex,
+    players: room.players,
+    timeLeft: room.timeLeft,
+    gameActive: room.gameActive
   });
 }
 
-function startTurnTimer() {
-  clearInterval(roomState.timer);
-  roomState.timeLeft = 5;
-  io.emit('timerUpdate', roomState.timeLeft);
+function nextTurn() {
+  room.turnIndex = (room.turnIndex + 1) % room.players.length;
+  startTimer();
+  broadcastGame();
+}
 
-  roomState.timer = setInterval(() => {
-    roomState.timeLeft -= 1;
-    io.emit('timerUpdate', roomState.timeLeft);
+function startTimer() {
+  clearInterval(room.timerObj);
+  if (room.timerLimit === 0) return; // Waktu Tanpa Batas
 
-    if (roomState.timeLeft <= 0) {
-      clearInterval(roomState.timer);
-      const loserColor = roomState.turn;
-      const winnerColor = loserColor === 'w' ? 'b' : 'w';
-      endRound(winnerColor, "Waktu habis! Terlalu lambat berpikir.");
+  room.timeLeft = room.timerLimit;
+  io.emit('timerTick', room.timeLeft);
+
+  room.timerObj = setInterval(() => {
+    room.timeLeft--;
+    io.emit('timerTick', room.timeLeft);
+    if (room.timeLeft <= 0) {
+      clearInterval(room.timerObj);
+      nextTurn(); // Skip giliran jika waktu habis
     }
   }, 1000);
 }
 
-function endRound(winnerColor, reason) {
-  clearInterval(roomState.timer);
-  roomState.gameActive = false;
-
-  const winnerPlayer = roomState.players.find(p => p.color === winnerColor);
-  if (winnerPlayer) winnerPlayer.score += 1;
-
-  let praiseText = "";
-  if (roomState.round >= 5 || roomState.players.some(p => p.score >= 3)) {
-    const p1 = roomState.players[0];
-    const p2 = roomState.players[1];
-    if (p1 && p2) {
-      if (p1.score > p2.score) praiseText = `🏆 ${p1.name} MENANG TOTAL (${p1.score}-${p2.score})! Murni keberuntungan di catur 4x4 mini ini! 😉`;
-      else if (p2.score > p1.score) praiseText = `🏆 ${p2.name} MENANG TOTAL (${p2.score}-${p1.score})! Luar biasa, jagoan di papan seukuran telapak tangan! 👏`;
-      else praiseText = `⚖️ SERI TOTAL (${p1.score}-${p2.score})! Dua-duanya sama seimbang!`;
-    }
-  } else {
-    praiseText = reason || `Player (${winnerColor === 'w' ? 'Putih' : 'Hitam'}) memenangkan ronde!`;
-  }
-
-  io.emit('roundOver', { winnerColor, reason: praiseText, players: roomState.players });
-}
-
 io.on('connection', (socket) => {
-
-  socket.on('joinRoom', (name) => {
-    const cleanName = name ? name.trim().substring(0, 12) : "Anonim";
-    socket.userName = cleanName;
-
-    if (roomState.players.length < 2) {
-      const role = roomState.players.length === 0 ? 'P1' : 'P2';
-      roomState.players.push({ id: socket.id, name: cleanName, role, color: null, ready: false, score: 0 });
-      socket.emit('assignedRole', { role, name: cleanName });
-    } else {
-      roomState.spectators.push({ id: socket.id, name: cleanName });
-      socket.emit('assignedRole', { role: 'Spectator', name: cleanName });
+  socket.on('joinRoom', ({ name, photo }) => {
+    if (room.gameActive || room.players.length >= 5) {
+      socket.emit('errorMsg', 'Room penuh atau game sedang berjalan.');
+      return;
     }
-    broadcastState();
+    const isHost = room.players.length === 0;
+    room.players.push({ id: socket.id, name, photo, isHost, isReady: false });
+    
+    socket.emit('joinSuccess', { isHost, id: socket.id });
+    broadcastLobby();
+  });
+
+  socket.on('changeTimer', (time) => {
+    const p = room.players.find(x => x.id === socket.id);
+    if (p && p.isHost) {
+      room.timerLimit = parseInt(time);
+      broadcastLobby();
+    }
   });
 
   socket.on('toggleReady', () => {
-    const player = roomState.players.find(p => p.id === socket.id);
-    if (!player) return;
-
-    player.ready = !player.ready;
-
-    if (roomState.players.length === 2 && roomState.players.every(p => p.ready)) {
-      const isP1White = Math.random() < 0.5;
-      roomState.players[0].color = isP1White ? 'w' : 'b';
-      roomState.players[1].color = isP1White ? 'b' : 'w';
-
-      roomState.board = generate4x4Board();
-      roomState.turn = 'w';
-      roomState.gameActive = true;
-      roomState.rematchVotes.clear();
-      startTurnTimer();
-    }
-    broadcastState();
+    const p = room.players.find(x => x.id === socket.id);
+    if (p) p.isReady = !p.isReady;
+    broadcastLobby();
   });
 
-  socket.on('makeMove', ({ from, to }) => {
-    if (!roomState.gameActive) return;
+  socket.on('startGame', () => {
+    const p = room.players.find(x => x.id === socket.id);
+    if (!p || !p.isHost) return;
+    if (room.players.length < 2 || !room.players.every(x => x.isReady)) return;
 
-    const player = roomState.players.find(p => p.id === socket.id);
-    if (!player || player.color !== roomState.turn) return;
+    const settings = getGameSettings(room.players.length);
+    room.boardSize = settings.size;
+    room.winStreak = settings.win;
+    room.board = Array(settings.size * settings.size).fill(null);
+    room.turnIndex = 0;
+    room.gameActive = true;
+    
+    io.emit('gameStarted', { size: room.boardSize, winStreak: room.winStreak });
+    startTimer();
+    broadcastGame();
+  });
 
-    // Cek validasi langkah
-    if (!isValidMove(roomState.board, from, to, player.color)) return;
+  socket.on('makeMove', (index) => {
+    if (!room.gameActive) return;
+    
+    const pIndex = room.players.findIndex(x => x.id === socket.id);
+    if (pIndex === -1 || pIndex !== room.turnIndex || room.board[index] !== null) return;
 
-    const targetPiece = roomState.board[to];
-    const isCapture = !!targetPiece;
+    room.board[index] = pIndex;
 
-    // Pindahkan Bidak
-    roomState.board[to] = roomState.board[from];
-    roomState.board[from] = null;
-
-    // Kirim sinyal efek suara
-    io.emit('moveMade', { isCapture });
-
-    // Cek Pemakan Raja
-    if (targetPiece && targetPiece[1] === 'K') {
-      endRound(player.color, `👑 RAJA TERMAKAN! ${player.name} memenangkan ronde ini!`);
+    if (checkWin(room.board, room.boardSize, room.winStreak, pIndex)) {
+      clearInterval(room.timerObj);
+      room.gameActive = false;
+      io.emit('gameOver', { winner: room.players[pIndex], board: room.board });
       return;
     }
 
-    roomState.turn = roomState.turn === 'w' ? 'b' : 'w';
-    startTurnTimer();
-    broadcastState();
-  });
-
-  socket.on('voteRematch', () => {
-    roomState.rematchVotes.add(socket.id);
-    if (roomState.rematchVotes.size >= 2) {
-      roomState.round += 1;
-      if (roomState.round > 5) {
-        roomState.round = 1;
-        roomState.players.forEach(p => p.score = 0);
-      }
-
-      const isP1White = Math.random() < 0.5;
-      roomState.players[0].color = isP1White ? 'w' : 'b';
-      roomState.players[1].color = isP1White ? 'b' : 'w';
-
-      roomState.board = generate4x4Board();
-      roomState.turn = 'w';
-      roomState.gameActive = true;
-      roomState.rematchVotes.clear();
-      startTurnTimer();
+    if (room.board.every(cell => cell !== null)) {
+      clearInterval(room.timerObj);
+      room.gameActive = false;
+      io.emit('gameOver', { winner: null, board: room.board });
+      return;
     }
-    broadcastState();
+
+    nextTurn();
   });
 
-  socket.on('exitGame', () => {
-    roomState = { players: [], spectators: [], board: Array(16).fill(null), turn: 'w', gameActive: false, round: 1, timer: null, timeLeft: 5, rematchVotes: new Set() };
-    io.emit('gameReset');
-  });
-
-  socket.on('sendChat', (msg) => {
-    if (!msg || !socket.userName) return;
-    io.emit('newChat', { sender: socket.userName, text: msg.substring(0, 50) });
-  });
-
-  socket.on('sendEmoji', (emoji) => {
-    if (!socket.userName) return;
-    io.emit('newEmoji', { sender: socket.userName, emoji });
+  socket.on('backToLobby', () => {
+    const p = room.players.find(x => x.id === socket.id);
+    if (p && p.isHost) {
+      room.gameActive = false;
+      room.players.forEach(x => x.isReady = false);
+      io.emit('returnToLobby');
+      broadcastLobby();
+    }
   });
 
   socket.on('disconnect', () => {
-    clearInterval(roomState.timer);
-    roomState.players = roomState.players.filter(p => p.id !== socket.id);
-    roomState.spectators = roomState.spectators.filter(s => s.id !== socket.id);
-
-    if (roomState.players.length < 2) {
-      roomState.gameActive = false;
-      roomState.round = 1;
-      roomState.players.forEach(p => { p.ready = false; p.score = 0; });
+    room.players = room.players.filter(x => x.id !== socket.id);
+    if (room.players.length > 0 && !room.players.some(x => x.isHost)) {
+      room.players[0].isHost = true; // Alihkan host jika host keluar
     }
-    broadcastState();
+    if (room.players.length < 2) room.gameActive = false;
+    broadcastLobby();
   });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Ches. running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Face XOXO running on ${PORT}`));
