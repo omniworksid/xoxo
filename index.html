@@ -29,23 +29,44 @@
 
     /* Lobby Section */
     .player-list { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; justify-content: center; }
-    .player-item { display: flex; flex-direction: column; align-items: center; background: #334155; padding: 10px; border-radius: 8px; min-width: 80px; }
+    .player-item { display: flex; flex-direction: column; align-items: center; background: #334155; padding: 10px; border-radius: 8px; min-width: 85px; position: relative; }
     .player-item img { width: 50px; height: 50px; border-radius: 50%; margin-bottom: 5px; border: 2px solid #fff; }
+    .score-badge { position: absolute; top: 5px; right: 5px; background: #fbbf24; color: #000; font-size: 10px; font-weight: bold; padding: 2px 5px; border-radius: 10px; }
     .status-tag { font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 4px; background: #ef4444; margin-top: 5px; }
     .status-tag.ready { background: var(--success); }
+
+    /* Lobby Chat */
+    .chat-container { background: #0f172a; border-radius: 8px; padding: 10px; margin-bottom: 15px; }
+    .chat-box { height: 100px; overflow-y: auto; font-size: 12px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 4px; }
+    .chat-msg { background: #1e293b; padding: 6px 10px; border-radius: 6px; width: fit-content; max-width: 90%; }
+    .chat-msg strong { color: #3b82f6; }
+    .chat-input-group { display: flex; gap: 5px; }
+    .chat-input-group input { margin-bottom: 0; padding: 8px; font-size: 13px; }
+    .chat-input-group button { margin-bottom: 0; padding: 8px 12px; width: auto; font-size: 13px; }
 
     /* Game Section */
     .game-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; font-weight: bold; }
     .timer { background: #ef4444; padding: 4px 12px; border-radius: 20px; }
+    
+    /* Perbaikan Konsistensi Board & Cell */
     .board { display: grid; gap: 4px; background: #334155; padding: 4px; border-radius: 8px; aspect-ratio: 1; max-width: 100%; margin: 0 auto; }
-    .cell { background: var(--card); border-radius: 4px; display: flex; justify-content: center; align-items: center; cursor: pointer; overflow: hidden; }
-    .cell img { width: 85%; height: 85%; border-radius: 50%; object-fit: cover; animation: popIn 0.2s ease-out; }
+    .cell { 
+      background: var(--card); border-radius: 4px; display: flex; justify-content: center; align-items: center; 
+      cursor: pointer; overflow: hidden; aspect-ratio: 1; width: 100%;
+    }
+    .cell img { 
+      width: 80%; height: 80%; border-radius: 50%; object-fit: cover; 
+      animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
+    }
     @keyframes popIn { 0% { transform: scale(0); } 100% { transform: scale(1); } }
 
     .hidden { display: none !important; }
   </style>
 </head>
 <body>
+
+<!-- Lagu Lobby Lucu (Otomatis Play saat masuk lobby, Pause saat game mulai) -->
+<audio id="bgmMusic" src="https://freepd.com/music/Carefree.mp3" loop></audio>
 
 <div class="container">
   <h1>Face XOXO</h1>
@@ -73,7 +94,18 @@
         <option value="0">Tanpa Batas</option>
       </select>
     </div>
+    
     <div class="player-list" id="playerList"></div>
+    
+    <!-- Fitur Chat Lobby -->
+    <div class="chat-container">
+      <div class="chat-box" id="chatBox"></div>
+      <div class="chat-input-group">
+        <input type="text" id="chatInput" placeholder="Nge-troll disini..." maxlength="50">
+        <button id="sendChatBtn">Kirim</button>
+      </div>
+    </div>
+
     <button id="readyBtn" class="btn-ready">I AM READY</button>
     <button id="startBtn" class="hidden">MULAI GAME (Khusus Host)</button>
   </div>
@@ -94,6 +126,26 @@
   let myId = null;
   let isHost = false;
 
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const bgmMusic = document.getElementById('bgmMusic');
+  bgmMusic.volume = 0.3;
+
+  // Sound Effect Pop Lucu
+  function playPopSound() {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.1);
+  }
+
   // Elemen DOM
   const video = document.getElementById('video');
   const canvas = document.getElementById('canvas');
@@ -112,31 +164,26 @@
   const turnIndicator = document.getElementById('turnIndicator');
   const timerIndicator = document.getElementById('timerIndicator');
   const backToLobbyBtn = document.getElementById('backToLobbyBtn');
+  const chatInput = document.getElementById('chatInput');
+  const sendChatBtn = document.getElementById('sendChatBtn');
+  const chatBox = document.getElementById('chatBox');
 
-  // Akses Kamera
   navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
     .then(stream => { video.srcObject = stream; })
     .catch(err => { alert("Kamera diperlukan untuk bermain game ini!"); });
 
-  // Jepret Wajah (Auto-Crop Lingkaran ke PNG Transparan)
   joinBtn.addEventListener('click', () => {
     const name = nameInput.value.trim();
     if (!name) return alert("Isi nama dulu!");
 
-    // Menghitung area crop tengah
     const size = Math.min(video.videoWidth, video.videoHeight);
     const sx = (video.videoWidth - size) / 2;
     const sy = (video.videoHeight - size) / 2;
 
-    // Gambar frame video ke canvas dan jadikan bentuk lingkaran (masking)
     ctx.clearRect(0, 0, 200, 200);
-    
-    // Perbaikan efek cermin pada gambar yang di-crop
     ctx.translate(200, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, sx, sy, size, size, 0, 0, 200, 200);
-    
-    // Kembalikan transformasi agar tidak merusak operasi selanjutnya
     ctx.setTransform(1, 0, 0, 1, 0, 0); 
     
     ctx.globalCompositeOperation = 'destination-in';
@@ -145,9 +192,11 @@
     ctx.fill();
 
     const photoBase64 = canvas.toDataURL('image/png');
-    
     socket.emit('joinRoom', { name, photo: photoBase64 });
-    video.srcObject.getTracks().forEach(track => track.stop()); // Matikan kamera
+    video.srcObject.getTracks().forEach(track => track.stop()); 
+
+    // Play BGM lucu setelah user interaksi
+    bgmMusic.play().catch(e => console.log("BGM butuh interaksi browser"));
   });
 
   socket.on('joinSuccess', (data) => {
@@ -168,8 +217,9 @@
       const hostStr = p.isHost ? '👑' : '';
       playerList.innerHTML += `
         <div class="player-item">
+          <div class="score-badge">⭐ ${p.score}</div>
           <img src="${p.photo}">
-          <span style="font-size:12px; font-weight:bold;">${p.name} ${hostStr}</span>
+          <span style="font-size:12px; font-weight:bold; text-align:center;">${p.name} ${hostStr}</span>
           <span class="status-tag ${p.isReady ? 'ready' : ''}">${p.isReady ? 'READY' : 'WAIT'}</span>
         </div>`;
     });
@@ -180,28 +230,37 @@
     } else {
       startBtn.classList.add('hidden');
     }
-
     if (!isHost) timerSelect.value = data.timerLimit;
+  });
+
+  // Chat Logic
+  sendChatBtn.addEventListener('click', () => {
+    socket.emit('sendChat', chatInput.value);
+    chatInput.value = '';
+  });
+  
+  socket.on('receiveChat', (data) => {
+    chatBox.innerHTML += `<div class="chat-msg"><strong>${data.sender}:</strong> ${data.text}</div>`;
+    chatBox.scrollTop = chatBox.scrollHeight;
   });
 
   timerSelect.addEventListener('change', () => { socket.emit('changeTimer', timerSelect.value); });
   readyBtn.addEventListener('click', () => { socket.emit('toggleReady'); });
   startBtn.addEventListener('click', () => { socket.emit('startGame'); });
 
-  // Game Logic
-  let currentPlayers = [];
   socket.on('gameStarted', (settings) => {
+    bgmMusic.pause(); // Matikan lagu saat main
     lobbyScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
     document.getElementById('sysMsg').innerText = `Sambungkan ${settings.winStreak} wajahmu untuk menang!`;
-    boardEl.style.gridTemplateColumns = `repeat(${settings.size}, 1fr)`;
+    
+    // Penyesuaian grid konsisten agar tidak pecah/membesar
+    boardEl.style.gridTemplateColumns = `repeat(${settings.size}, minmax(0, 1fr))`;
     backToLobbyBtn.classList.add('hidden');
   });
 
   socket.on('gameUpdate', (state) => {
-    currentPlayers = state.players;
     const activePlayer = state.players[state.turnIndex];
-    
     if (activePlayer.id === myId) {
       turnIndicator.innerHTML = `Giliranmu!`;
       turnIndicator.style.color = '#22c55e';
@@ -225,14 +284,16 @@
     });
   });
 
+  // Listener untuk suara gerakan
+  socket.on('sfxMove', () => playPopSound());
+
   socket.on('timerTick', (time) => {
     timerIndicator.innerText = time > 0 ? `⏳ ${time}s` : '⏳ -';
   });
 
   socket.on('gameOver', (data) => {
-    if (data.winner) turnIndicator.innerHTML = `🏆 ${data.winner.name} MENANG!`;
+    if (data.winner) turnIndicator.innerHTML = `🏆 ${data.winner.name} MENANG! (Skor: ${data.winner.score})`;
     else turnIndicator.innerHTML = `⚖️ SERI! Papan Penuh.`;
-    
     if (isHost) backToLobbyBtn.classList.remove('hidden');
   });
 
@@ -242,6 +303,7 @@
     gameScreen.classList.add('hidden');
     lobbyScreen.classList.remove('hidden');
     document.getElementById('sysMsg').innerText = "Jadikan wajahmu sebagai bidak catur!";
+    bgmMusic.play(); // Putar lagi lagu lobby
   });
 
   socket.on('errorMsg', (msg) => alert(msg));
