@@ -3,385 +3,248 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ches. - lesser than chess</title>
+  <title>Face XOXO</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
-    :root {
-      --bg: #161512;
-      --card: #262421;
-      --accent: #e5b33a;
-      --light-sq: #eeeed2;
-      --dark-sq: #769656;
-      --highlight: rgba(255, 255, 0, 0.5);
-      --text: #bababa;
-      --danger: #cc3333;
-    }
+    :root { --bg: #0f172a; --card: #1e293b; --text: #f8fafc; --accent: #3b82f6; --success: #22c55e; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
+    body { background: var(--bg); color: var(--text); display: flex; flex-direction: column; align-items: center; padding: 20px; min-height: 100vh; }
+    
+    .container { background: var(--card); padding: 20px; border-radius: 12px; width: 100%; max-width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+    h1 { text-align: center; margin-bottom: 5px; font-size: 28px; }
+    p.subtitle { text-align: center; color: #94a3b8; font-size: 13px; margin-bottom: 20px; }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-    body { background: var(--bg); color: var(--text); display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 15px; }
+    /* Camera Section */
+    .camera-box { position: relative; width: 200px; height: 200px; margin: 0 auto 15px; border-radius: 50%; overflow: hidden; background: #000; border: 4px solid var(--accent); }
+    video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+    .camera-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 50%; box-shadow: 0 0 0 9999px rgba(0,0,0,0.5); pointer-events: none; }
+    canvas { display: none; }
+    
+    input, select, button { width: 100%; padding: 12px; margin-bottom: 10px; border-radius: 8px; border: none; font-size: 15px; }
+    input, select { background: #334155; color: #fff; outline: none; }
+    button { background: var(--accent); color: #fff; font-weight: bold; cursor: pointer; transition: 0.2s; }
+    button:hover { filter: brightness(1.1); }
+    button:disabled { background: #475569; cursor: not-allowed; }
+    .btn-ready { background: var(--success); }
 
-    .app-container {
-      background: var(--card);
-      width: 100%;
-      max-width: 420px;
-      border-radius: 12px;
-      padding: 20px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.8);
-      position: relative;
-    }
+    /* Lobby Section */
+    .player-list { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; justify-content: center; }
+    .player-item { display: flex; flex-direction: column; align-items: center; background: #334155; padding: 10px; border-radius: 8px; min-width: 80px; }
+    .player-item img { width: 50px; height: 50px; border-radius: 50%; margin-bottom: 5px; border: 2px solid #fff; }
+    .status-tag { font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 4px; background: #ef4444; margin-top: 5px; }
+    .status-tag.ready { background: var(--success); }
 
-    /* Modal Input Nama */
-    .modal {
-      position: absolute; top:0; left:0; right:0; bottom:0;
-      background: rgba(18, 17, 15, 0.96);
-      border-radius: 12px;
-      display: flex; flex-direction: column;
-      justify-content: center; align-items: center;
-      padding: 25px; z-index: 100;
-    }
-    .modal h2 { font-size: 32px; color: #fff; margin-bottom: 5px; font-weight: 900; }
-    .modal p { font-size: 13px; color: #8b8987; margin-bottom: 20px; text-align: center; }
-    .modal input {
-      width: 100%; padding: 12px; border-radius: 6px; border: 1px solid #403d39;
-      background: #1e1c18; color: #fff; font-size: 16px; margin-bottom: 15px; text-align: center; outline: none;
-    }
-    .modal button {
-      width: 100%; padding: 12px; background: #81b64c; color: #fff;
-      font-weight: bold; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; transition: 0.2s;
-    }
-    .modal button:hover { background: #a3d168; }
-
-    /* Header & Titles */
-    .header { text-align: center; margin-bottom: 15px; }
-    .title { font-size: 30px; font-weight: 900; color: #fff; letter-spacing: 1px; }
-    .subtitle { font-size: 12px; color: #8b8987; font-style: italic; }
-
-    /* Lobby status */
-    .players-list { display: flex; justify-content: space-between; margin-bottom: 15px; background: #1e1c18; padding: 10px; border-radius: 8px; border: 1px solid #363431; }
-    .player-card { font-size: 13px; font-weight: bold; color: #fff; }
-    .status-ready { color: #81b64c; font-size: 11px; }
-    .status-notready { color: #e5b33a; font-size: 11px; }
-
-    /* Ready Button */
-    .ready-btn {
-      width: 100%; padding: 12px; font-size: 16px; font-weight: bold; border: none;
-      border-radius: 6px; background: #363431; color: #8b8987; cursor: not-allowed; transition: 0.2s;
-      margin-bottom: 15px;
-    }
-    .ready-btn.active { background: #81b64c; color: #fff; cursor: pointer; }
-    .ready-btn.active:hover { background: #a3d168; }
-
-    /* Game Info Bar */
-    .game-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 13px; font-weight: 600; color: #fff; }
-    .timer-badge { background: var(--danger); color: #fff; padding: 4px 10px; border-radius: 12px; font-weight: bold; }
-
-    /* 4x4 Chess Board */
-    .board-4x4 {
-      display: grid; grid-template-columns: repeat(4, 1fr);
-      width: 100%; aspect-ratio: 1; border-radius: 4px; overflow: hidden;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.5); margin-bottom: 15px;
-    }
-    .square {
-      display: flex; justify-content: center; align-items: center;
-      cursor: pointer; user-select: none; position: relative;
-    }
-    .square.light { background: var(--light-sq); }
-    .square.dark { background: var(--dark-sq); }
-    .square.selected { background: var(--highlight) !important; }
-    .square img { width: 85%; height: 85%; object-fit: contain; pointer-events: none; }
-
-    /* Quick Emojis */
-    .emoji-bar { display: flex; justify-content: space-between; margin-bottom: 12px; }
-    .emoji-btn {
-      background: #363431; border: none; font-size: 20px; padding: 6px;
-      border-radius: 6px; cursor: pointer; transition: 0.1s; flex: 1; margin: 0 2px;
-    }
-    .emoji-btn:hover { background: #403d39; transform: scale(1.1); }
-
-    /* Chat Area */
-    .chat-box { background: #1e1c18; height: 75px; border-radius: 6px; overflow-y: auto; padding: 8px; font-size: 12px; margin-bottom: 8px; border: 1px solid #363431; }
-    .chat-msg { margin-bottom: 4px; word-break: break-word; color: #ddd; }
-    .chat-input-group { display: flex; gap: 5px; }
-    .chat-input-group input { flex: 1; background: #1e1c18; border: 1px solid #363431; color: #fff; padding: 8px; border-radius: 4px; outline: none; }
-    .chat-input-group button { background: #363431; color: #fff; border: none; padding: 0 12px; border-radius: 4px; cursor: pointer; font-weight: bold; }
-    .chat-input-group button:hover { background: #403d39; }
-
-    /* Result Overlay */
-    .result-screen {
-      position: absolute; top:0; left:0; right:0; bottom:0;
-      background: rgba(18, 17, 15, 0.95); border-radius: 12px;
-      display: flex; flex-direction: column; justify-content: center; align-items: center;
-      padding: 20px; text-align: center; z-index: 90;
-    }
-    .result-title { font-size: 20px; color: #fff; margin-bottom: 20px; font-weight: bold; }
-    .btn-warrior { width: 100%; padding: 12px; background: #81b64c; color: #fff; border: none; border-radius: 6px; font-weight: bold; margin-bottom: 10px; cursor: pointer; }
-    .btn-loser { width: 100%; padding: 12px; background: #cc3333; color: #fff; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+    /* Game Section */
+    .game-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; font-weight: bold; }
+    .timer { background: #ef4444; padding: 4px 12px; border-radius: 20px; }
+    .board { display: grid; gap: 4px; background: #334155; padding: 4px; border-radius: 8px; aspect-ratio: 1; max-width: 100%; margin: 0 auto; }
+    .cell { background: var(--card); border-radius: 4px; display: flex; justify-content: center; align-items: center; cursor: pointer; overflow: hidden; }
+    .cell img { width: 85%; height: 85%; border-radius: 50%; object-fit: cover; animation: popIn 0.2s ease-out; }
+    @keyframes popIn { 0% { transform: scale(0); } 100% { transform: scale(1); } }
 
     .hidden { display: none !important; }
   </style>
 </head>
 <body>
 
-<div class="app-container">
-  <!-- MODAL NAME INPUT -->
-  <div id="nameModal" class="modal">
-    <h2>Ches.</h2>
-    <p>lesser than chess (4x4 Fast Chess)</p>
-    <input type="text" id="usernameInput" placeholder="Masukkan Nama..." maxlength="12">
-    <button id="joinBtn">MASUK ROOM</button>
-  </div>
+<div class="container">
+  <h1>Face XOXO</h1>
+  <p class="subtitle" id="sysMsg">Jadikan wajahmu sebagai bidak catur!</p>
 
-  <!-- RESULT MODAL -->
-  <div id="resultScreen" class="result-screen hidden">
-    <div id="resultReason" class="result-title"></div>
-    <button id="rematchBtn" class="btn-warrior">Rematch like a Warrior ⚔️</button>
-    <button id="exitBtn" class="btn-loser">Exit like a loser - boo 👻</button>
-  </div>
-
-  <!-- HEADER -->
-  <div class="header">
-    <div class="title">Ches.</div>
-    <div class="subtitle">lesser than chess</div>
-  </div>
-
-  <!-- PLAYERS / LOBBY STATUS -->
-  <div class="players-list">
-    <div id="p1Card" class="player-card">P1: Waiting...</div>
-    <div id="p2Card" class="player-card">P2: Waiting...</div>
-  </div>
-
-  <button id="readyBtn" class="ready-btn">I AM READY</button>
-
-  <!-- GAME INTERFACE -->
-  <div id="gameSection">
-    <div class="game-bar">
-      <span id="turnInfo">Giliran: -</span>
-      <span id="roundInfo">Ronde: 1/5</span>
-      <span id="timerInfo" class="timer-badge">⏳ 5s</span>
+  <!-- LAYAR LOGIN & KAMERA -->
+  <div id="setupScreen">
+    <div class="camera-box">
+      <video id="video" autoplay playsinline></video>
+      <div class="camera-overlay"></div>
     </div>
+    <input type="text" id="nameInput" placeholder="Masukkan Nama Kamu..." maxlength="10">
+    <button id="joinBtn">Jepret & Masuk Lobby</button>
+    <canvas id="canvas" width="200" height="200"></canvas>
+  </div>
 
-    <div id="board" class="board-4x4"></div>
-
-    <!-- QUICK EMOJIS -->
-    <div class="emoji-bar">
-      <button class="emoji-btn" onclick="sendEmoji('👏')">👏</button>
-      <button class="emoji-btn" onclick="sendEmoji('🧠')">🧠</button>
-      <button class="emoji-btn" onclick="sendEmoji('🤡')">🤡</button>
-      <button class="emoji-btn" onclick="sendEmoji('💤')">💤</button>
-      <button class="emoji-btn" onclick="sendEmoji('💀')">💀</button>
+  <!-- LOBBY SCREEN -->
+  <div id="lobbyScreen" class="hidden">
+    <div id="hostSettings" class="hidden">
+      <label style="font-size: 12px; color: #94a3b8;">Waktu per Giliran (Khusus Host):</label>
+      <select id="timerSelect">
+        <option value="5">Super Cepat (5 Detik)</option>
+        <option value="10" selected>Normal (10 Detik)</option>
+        <option value="30">Santai (30 Detik)</option>
+        <option value="0">Tanpa Batas</option>
+      </select>
     </div>
+    <div class="player-list" id="playerList"></div>
+    <button id="readyBtn" class="btn-ready">I AM READY</button>
+    <button id="startBtn" class="hidden">MULAI GAME (Khusus Host)</button>
+  </div>
 
-    <!-- CHAT -->
-    <div id="chatBox" class="chat-box"></div>
-    <div class="chat-input-group">
-      <input type="text" id="chatInput" placeholder="Ketik pesan..." maxlength="50">
-      <button id="sendChatBtn">Kirim</button>
+  <!-- GAME SCREEN -->
+  <div id="gameScreen" class="hidden">
+    <div class="game-header">
+      <span id="turnIndicator">Menunggu...</span>
+      <span id="timerIndicator" class="timer">⏳ 10s</span>
     </div>
+    <div id="board" class="board"></div>
+    <button id="backToLobbyBtn" class="hidden" style="margin-top: 15px;">Kembali ke Lobby (Host)</button>
   </div>
 </div>
 
 <script>
   const socket = io();
+  let myId = null;
+  let isHost = false;
 
-  // Gambar SVG Vector Bidak Catur gaya Chess.com
-  const pieceImages = {
-    'wK': 'https://upload.wikimedia.org/wikipedia/commons/4/42/Chess_klt45.svg',
-    'wQ': 'https://upload.wikimedia.org/wikipedia/commons/1/15/Chess_qlt45.svg',
-    'wR': 'https://upload.wikimedia.org/wikipedia/commons/7/72/Chess_rlt45.svg',
-    'wB': 'https://upload.wikimedia.org/wikipedia/commons/b/b1/Chess_blt45.svg',
-    'wN': 'https://upload.wikimedia.org/wikipedia/commons/7/70/Chess_nlt45.svg',
-    'wP': 'https://upload.wikimedia.org/wikipedia/commons/4/45/Chess_plt45.svg',
-    'bK': 'https://upload.wikimedia.org/wikipedia/commons/f/f0/Chess_kdt45.svg',
-    'bQ': 'https://upload.wikimedia.org/wikipedia/commons/4/47/Chess_qdt45.svg',
-    'bR': 'https://upload.wikimedia.org/wikipedia/commons/ff/ff/Chess_rdt45.svg',
-    'bB': 'https://upload.wikimedia.org/wikipedia/commons/9/98/Chess_bdt45.svg',
-    'bN': 'https://upload.wikimedia.org/wikipedia/commons/ef/ef/Chess_ndt45.svg',
-    'bP': 'https://upload.wikimedia.org/wikipedia/commons/c/c7/Chess_pdt45.svg'
-  };
-
-  // Sound Synthesizer (Web Audio API) untuk suara kayu catur diletakkan
-  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  function playMoveSound(isCapture = false) {
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(isCapture ? 150 : 220, audioCtx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.08);
-
-    gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
-
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.08);
-  }
-
-  let myRole = null;
-  let selectedSquare = null;
-  let currentBoard = Array(16).fill(null);
-
-  // DOM Elements
-  const nameModal = document.getElementById('nameModal');
-  const usernameInput = document.getElementById('usernameInput');
+  // Elemen DOM
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const nameInput = document.getElementById('nameInput');
   const joinBtn = document.getElementById('joinBtn');
+  const setupScreen = document.getElementById('setupScreen');
+  const lobbyScreen = document.getElementById('lobbyScreen');
+  const gameScreen = document.getElementById('gameScreen');
+  const playerList = document.getElementById('playerList');
+  const hostSettings = document.getElementById('hostSettings');
+  const timerSelect = document.getElementById('timerSelect');
   const readyBtn = document.getElementById('readyBtn');
-  const p1Card = document.getElementById('p1Card');
-  const p2Card = document.getElementById('p2Card');
-  const turnInfo = document.getElementById('turnInfo');
-  const roundInfo = document.getElementById('roundInfo');
-  const timerInfo = document.getElementById('timerInfo');
+  const startBtn = document.getElementById('startBtn');
   const boardEl = document.getElementById('board');
-  const resultScreen = document.getElementById('resultScreen');
-  const resultReason = document.getElementById('resultReason');
-  const rematchBtn = document.getElementById('rematchBtn');
-  const exitBtn = document.getElementById('exitBtn');
-  const chatBox = document.getElementById('chatBox');
-  const chatInput = document.getElementById('chatInput');
-  const sendChatBtn = document.getElementById('sendChatBtn');
+  const turnIndicator = document.getElementById('turnIndicator');
+  const timerIndicator = document.getElementById('timerIndicator');
+  const backToLobbyBtn = document.getElementById('backToLobbyBtn');
 
+  // Akses Kamera
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
+    .then(stream => { video.srcObject = stream; })
+    .catch(err => { alert("Kamera diperlukan untuk bermain game ini!"); });
+
+  // Jepret Wajah (Auto-Crop Lingkaran ke PNG Transparan)
   joinBtn.addEventListener('click', () => {
-    const val = usernameInput.value.trim();
-    if (val) {
-      socket.emit('joinRoom', val);
-      nameModal.classList.add('hidden');
+    const name = nameInput.value.trim();
+    if (!name) return alert("Isi nama dulu!");
+
+    // Menghitung area crop tengah
+    const size = Math.min(video.videoWidth, video.videoHeight);
+    const sx = (video.videoWidth - size) / 2;
+    const sy = (video.videoHeight - size) / 2;
+
+    // Gambar frame video ke canvas dan jadikan bentuk lingkaran (masking)
+    ctx.clearRect(0, 0, 200, 200);
+    
+    // Perbaikan efek cermin pada gambar yang di-crop
+    ctx.translate(200, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, sx, sy, size, size, 0, 0, 200, 200);
+    
+    // Kembalikan transformasi agar tidak merusak operasi selanjutnya
+    ctx.setTransform(1, 0, 0, 1, 0, 0); 
+    
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.beginPath();
+    ctx.arc(100, 100, 100, 0, Math.PI * 2);
+    ctx.fill();
+
+    const photoBase64 = canvas.toDataURL('image/png');
+    
+    socket.emit('joinRoom', { name, photo: photoBase64 });
+    video.srcObject.getTracks().forEach(track => track.stop()); // Matikan kamera
+  });
+
+  socket.on('joinSuccess', (data) => {
+    myId = data.id;
+    isHost = data.isHost;
+    setupScreen.classList.add('hidden');
+    lobbyScreen.classList.remove('hidden');
+    if (isHost) hostSettings.classList.remove('hidden');
+  });
+
+  socket.on('lobbyUpdate', (data) => {
+    playerList.innerHTML = '';
+    let allReady = true;
+
+    data.players.forEach(p => {
+      if (!p.isReady) allReady = false;
+      const meStr = p.id === myId ? '(You)' : '';
+      const hostStr = p.isHost ? '👑' : '';
+      playerList.innerHTML += `
+        <div class="player-item">
+          <img src="${p.photo}">
+          <span style="font-size:12px; font-weight:bold;">${p.name} ${hostStr}</span>
+          <span class="status-tag ${p.isReady ? 'ready' : ''}">${p.isReady ? 'READY' : 'WAIT'}</span>
+        </div>`;
+    });
+
+    if (isHost && data.players.length >= 2) {
+      startBtn.classList.remove('hidden');
+      startBtn.disabled = !allReady;
+    } else {
+      startBtn.classList.add('hidden');
     }
+
+    if (!isHost) timerSelect.value = data.timerLimit;
   });
 
-  socket.on('assignedRole', (data) => {
-    myRole = data.role;
+  timerSelect.addEventListener('change', () => { socket.emit('changeTimer', timerSelect.value); });
+  readyBtn.addEventListener('click', () => { socket.emit('toggleReady'); });
+  startBtn.addEventListener('click', () => { socket.emit('startGame'); });
+
+  // Game Logic
+  let currentPlayers = [];
+  socket.on('gameStarted', (settings) => {
+    lobbyScreen.classList.add('hidden');
+    gameScreen.classList.remove('hidden');
+    document.getElementById('sysMsg').innerText = `Sambungkan ${settings.winStreak} wajahmu untuk menang!`;
+    boardEl.style.gridTemplateColumns = `repeat(${settings.size}, 1fr)`;
+    backToLobbyBtn.classList.add('hidden');
   });
 
-  readyBtn.addEventListener('click', () => {
-    socket.emit('toggleReady');
-  });
+  socket.on('gameUpdate', (state) => {
+    currentPlayers = state.players;
+    const activePlayer = state.players[state.turnIndex];
+    
+    if (activePlayer.id === myId) {
+      turnIndicator.innerHTML = `Giliranmu!`;
+      turnIndicator.style.color = '#22c55e';
+    } else {
+      turnIndicator.innerHTML = `Giliran: <img src="${activePlayer.photo}" style="width:20px; border-radius:50%; vertical-align:middle;"> ${activePlayer.name}`;
+      turnIndicator.style.color = '#f8fafc';
+    }
 
-  // Render Papan
-  function renderBoard(board) {
     boardEl.innerHTML = '';
-    currentBoard = board;
-
-    for (let i = 0; i < 16; i++) {
-      const row = Math.floor(i / 4);
-      const col = i % 4;
-      const isDark = (row + col) % 2 === 1;
-
-      const sq = document.createElement('div');
-      sq.className = `square ${isDark ? 'dark' : 'light'}`;
-      if (selectedSquare === i) sq.classList.add('selected');
-
-      const piece = board[i];
-      if (piece && pieceImages[piece]) {
+    state.board.forEach((cellVal, idx) => {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      if (cellVal !== null) {
         const img = document.createElement('img');
-        img.src = pieceImages[piece];
-        sq.appendChild(img);
+        img.src = state.players[cellVal].photo;
+        cell.appendChild(img);
+      } else {
+        cell.addEventListener('click', () => socket.emit('makeMove', idx));
       }
-
-      sq.addEventListener('click', () => handleSquareClick(i));
-      boardEl.appendChild(sq);
-    }
-  }
-
-  function handleSquareClick(index) {
-    if (selectedSquare === null) {
-      if (currentBoard[index]) {
-        selectedSquare = index;
-        renderBoard(currentBoard);
-      }
-    } else {
-      const from = selectedSquare;
-      const to = index;
-      selectedSquare = null;
-      socket.emit('makeMove', { from, to });
-    }
-  }
-
-  // Update Game State
-  socket.on('updateGame', (state) => {
-    const p1 = state.players[0];
-    const p2 = state.players[1];
-
-    p1Card.innerHTML = p1 
-      ? `${p1.name} (${p1.color ? (p1.color==='w'?'Putih':'Hitam') : 'P1'}) [${p1.score}]<br><span class="${p1.ready?'status-ready':'status-notready'}">${p1.ready?'READY':'WAITING'}</span>`
-      : "P1: Waiting...";
-
-    p2Card.innerHTML = p2 
-      ? `${p2.name} (${p2.color ? (p2.color==='w'?'Putih':'Hitam') : 'P2'}) [${p2.score}]<br><span class="${p2.ready?'status-ready':'status-notready'}">${p2.ready?'READY':'WAITING'}</span>`
-      : "P2: Waiting...";
-
-    if (state.players.length === 2 && (myRole === 'P1' || myRole === 'P2')) {
-      readyBtn.classList.add('active');
-    } else {
-      readyBtn.classList.remove('active');
-    }
-
-    roundInfo.innerText = `Ronde: ${state.round}/5`;
-    turnInfo.innerText = `Giliran: ${state.turn === 'w' ? 'Putih' : 'Hitam'}`;
-
-    renderBoard(state.board);
+      boardEl.appendChild(cell);
+    });
   });
 
-  // Event saat ada perpindahan bidak yang valid (Memainkan Suara)
-  socket.on('moveMade', (data) => {
-    playMoveSound(data.isCapture);
+  socket.on('timerTick', (time) => {
+    timerIndicator.innerText = time > 0 ? `⏳ ${time}s` : '⏳ -';
   });
 
-  socket.on('timerUpdate', (time) => {
-    timerInfo.innerText = `⏳ ${time}s`;
+  socket.on('gameOver', (data) => {
+    if (data.winner) turnIndicator.innerHTML = `🏆 ${data.winner.name} MENANG!`;
+    else turnIndicator.innerHTML = `⚖️ SERI! Papan Penuh.`;
+    
+    if (isHost) backToLobbyBtn.classList.remove('hidden');
   });
 
-  socket.on('roundOver', (data) => {
-    resultReason.innerText = data.reason;
-    resultScreen.classList.remove('hidden');
+  backToLobbyBtn.addEventListener('click', () => { socket.emit('backToLobby'); });
+  
+  socket.on('returnToLobby', () => {
+    gameScreen.classList.add('hidden');
+    lobbyScreen.classList.remove('hidden');
+    document.getElementById('sysMsg').innerText = "Jadikan wajahmu sebagai bidak catur!";
   });
 
-  rematchBtn.addEventListener('click', () => {
-    socket.emit('voteRematch');
-    rematchBtn.innerText = "Menunggu Lawan Rematch...";
-  });
-
-  exitBtn.addEventListener('click', () => {
-    socket.emit('exitGame');
-    location.reload();
-  });
-
-  socket.on('gameReset', () => {
-    location.reload();
-  });
-
-  function sendEmoji(emoji) {
-    socket.emit('sendEmoji', emoji);
-  }
-
-  sendChatBtn.addEventListener('click', () => {
-    const txt = chatInput.value.trim();
-    if (txt) {
-      socket.emit('sendChat', txt);
-      chatInput.value = '';
-    }
-  });
-
-  socket.on('newChat', (data) => {
-    const el = document.createElement('div');
-    el.className = 'chat-msg';
-    el.innerHTML = `<strong>${data.sender}:</strong> ${data.text}`;
-    chatBox.appendChild(el);
-    chatBox.scrollTop = chatBox.scrollHeight;
-  });
-
-  socket.on('newEmoji', (data) => {
-    const el = document.createElement('div');
-    el.className = 'chat-msg';
-    el.innerHTML = `<strong>${data.sender}:</strong> <span style="font-size:18px">${data.emoji}</span>`;
-    chatBox.appendChild(el);
-    chatBox.scrollTop = chatBox.scrollHeight;
-  });
-
-  renderBoard(Array(16).fill(null));
+  socket.on('errorMsg', (msg) => alert(msg));
 </script>
 </body>
 </html>
